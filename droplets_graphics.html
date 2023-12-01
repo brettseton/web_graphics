@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Fluid Simulation with WebGL</title>
+    <style>
+        canvas {
+            display: block;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">Speed is controlled by the Arrow Up and Arrow Down keys</div>
+    <div>
+        <canvas id="fluidCanvas" width="1600" height="1200" style="width: 800px; height: 600px;"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("fluidCanvas");
+        canvas.width = 1600*4;
+        canvas.height = 1200*4;
+        const gl = canvas.getContext("webgl", { antialias: true });
+
+        if (!gl) {
+            console.error("Unable to initialize WebGL. Your browser may not support it.");
+        }
+        // Set the viewport
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        // Set sample coverage
+        gl.sampleCoverage(0.5, false); // Adjust the sample coverage as needed
+
+        const vsSource = `
+            attribute vec4 aVertexPosition;
+            void main(void) {
+                gl_Position = aVertexPosition;
+            }
+        `;
+
+        // Fragment shader program
+        // const fsSource = `
+        //     precision highp float;
+        //     uniform float uTime;
+        //     uniform vec2 uClickPos;
+
+        //     void main(void) {
+        //         vec2 st = gl_FragCoord.xy / vec2(400.0, 400.0);
+
+        //         // Calculate the distance from the click position
+        //         vec2 delta = st - uClickPos;
+        //         float distance = length(delta);
+
+        //         // Create drop-like ripples that reflect off the sides
+        //         float ripple = sin(distance * 10.0 - uTime * 5.0) * 0.1;
+        //         ripple *= smoothstep(0.5, 0.51, cos(distance * 10.0 - uTime * 5.0)); // Enhance the drop shape
+
+        //         // Make the ripples stand out more colorwise
+        //         vec3 color = vec3(0.5 + ripple, 0.5, 0.5 - ripple);
+
+        //         gl_FragColor = vec4(color, 1.0);
+        //     }
+        // `;
+
+        // const fsSource = `
+        //     precision highp float;
+        //     uniform float uTime;
+        //     uniform vec2 uClickPos;
+        //     uniform bool uClickEnabled;
+
+        //     void main(void) {
+        //         vec2 st = gl_FragCoord.xy / vec2(400.0, 400.0);
+
+        //         // Calculate the distance from the click position
+        //         vec2 delta = st - uClickPos;
+        //         float distance = length(delta);
+
+        //         // Create drop-like ripples that reflect off the sides
+        //         float ripple = 0.0;
+
+        //             ripple = sin(distance * 15.0 - uTime * 5.0) * 0.2;  // Increase ripple amplitude
+        //             ripple *= smoothstep(0.4, 0.41, cos(distance * 15.0 - uTime * 5.0)); // Enhance the drop shape
+
+        //         // Make the ripples white on dark blue
+        //         vec3 white = vec3(1.0, 1.0, 1.0);
+        //         vec3 lightBlue = vec3(0.5, 0.7, 1.0);
+        //         vec3 darkBlue = vec3(0.0, 0.0, 0.2);
+        //         vec3 color = mix(darkBlue, lightBlue, ripple);
+
+        //         gl_FragColor = vec4(color, 1.0);
+        //     }
+        // `;
+
+        
+        // Fragment shader
+        const fsSource = `
+            precision highp float;
+            uniform float uTime;
+
+            void main(void) {
+                vec2 st = gl_FragCoord.xy / vec2(800.0, 800.0); // Increased resolution
+
+                // Two wave sources at top-left and bottom-right corners with different speeds
+                float wave1 = sin(length(st - vec2(0.0, 3.0) * 0.5) * 15.0 - uTime * 10.0) * 0.15;
+                float wave2 = cos(length(st - vec2(8.0, 0.0) * 0.5) * 10.0 - uTime * 5.0) * 0.15;
+
+                // Combine the waves
+                float combinedWave = wave1 + wave2;
+
+                // Dark blue and light blue colors
+                vec3 darkBlue = vec3(0.0, 0.0, 0.2);
+                vec3 lightBlue = vec3(0.5, 0.7, 1.0);
+                vec3 color = mix(darkBlue, lightBlue, 0.5 + combinedWave); // Adjust the mix factor as needed
+
+                // Display the combined wave
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+         
+
+        function initShaderProgram(gl, vsSource, fsSource) {
+            const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+            if (!vertexShader || !fragmentShader) {
+                return null;
+            }
+
+            const shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                console.error('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+                return null;
+            }
+
+            return shaderProgram;
+        }
+
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                const compilationLog = gl.getShaderInfoLog(shader);
+                console.error('Shader compilation error:', compilationLog);
+                gl.deleteShader(shader);
+                return null;
+            }
+
+            return shader;
+        }
+
+        const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+
+if (!shaderProgram) {
+    console.error('Shader program initialization failed.');
+} else {
+    gl.useProgram(shaderProgram);
+
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    const positions = [
+        -1.0,  1.0,
+         1.0,  1.0,
+        -1.0, -1.0,
+         1.0, -1.0,
+    ];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    const positionAttributeLocation = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
+    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(positionAttributeLocation);
+
+    const timeUniformLocation = gl.getUniformLocation(shaderProgram, 'uTime');
+    const clickPosUniformLocation = gl.getUniformLocation(shaderProgram, 'uClickPos');
+
+    let clickPos = { x: 0, y: 0 };
+
+    canvas.addEventListener('click', (event) => {
+        // Update the click position when canvas is clicked
+        const rect = canvas.getBoundingClientRect();
+        clickPos.x = (event.clientX - rect.left) / canvas.width;
+        clickPos.y = 1.0 - (event.clientY - rect.top) / canvas.height;
+
+        // Update the uniform with the new click position
+        gl.uniform2f(clickPosUniformLocation, clickPos.x, clickPos.y);
+    });
+
+    function drawScene() {
+        gl.clearColor(1.0, 1.0, 1.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        const time = performance.now() * 0.001; // Update time uniform
+        gl.uniform1f(timeUniformLocation, time);
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    function render() {
+        drawScene();
+        requestAnimationFrame(render);
+    }
+
+    render();
+}
+    </script>
+</body>
+</html>
